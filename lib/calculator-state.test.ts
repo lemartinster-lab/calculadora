@@ -70,13 +70,15 @@ describe("flujo de la calculadora", () => {
 });
 
 describe("memorias A–D", () => {
-  const sto: CalcAction = { type: "storeArm" };
+  const sto: CalcAction = { type: "memoryOp", op: "sto" };
+  const mPlus: CalcAction = { type: "memoryOp", op: "add" };
+  const mMinus: CalcAction = { type: "memoryOp", op: "sub" };
   const mem = (key: "A" | "B" | "C" | "D"): CalcAction => ({ type: "memory", key });
 
   it("STO + letra guarda el resultado ya calculado", () => {
     const s = run([...digits("6"), { type: "operator", value: "*" }, ...digits("7"), { type: "equals" }, sto, mem("A")]);
     expect(s.memory.A).toBe(42);
-    expect(s.storeArmed).toBe(false);
+    expect(s.memoryOp).toBeNull();
   });
 
   it("STO sin pulsar = calcula primero la expresión", () => {
@@ -96,14 +98,40 @@ describe("memorias A–D", () => {
     const s = run([...digits("1"), { type: "operator", value: "/" }, ...digits("0"), sto, mem("A")]);
     expect(s.memory.A).toBeUndefined();
     expect(s.error).toBe("División entre cero");
-    expect(s.storeArmed).toBe(false);
+    expect(s.memoryOp).toBeNull();
   });
 
   it("otra tecla cancela STO, AC no borra memorias y Borrar memorias sí", () => {
     const armed = run([...digits("3"), sto, { type: "operator", value: "+" }]);
-    expect(armed.storeArmed).toBe(false);
+    expect(armed.memoryOp).toBeNull();
     const stored = run([sto, mem("D"), { type: "clear" }], run([...digits("9")]));
     expect(stored.memory.D).toBe(9);
     expect(run([{ type: "clearMemory" }], stored).memory).toEqual({});
+  });
+
+  it("M+ suma a la memoria y una vacía cuenta como 0", () => {
+    const first = run([...digits("12"), { type: "decimal" }, ...digits("5"), mPlus, mem("B")]);
+    expect(first.memory.B).toBe(12.5);
+    const second = run([...digits("10"), { type: "operator", value: "+" }, ...digits("2"), mPlus, mem("B")], first);
+    expect(second.memory.B).toBe(24.5);
+    expect(second.history[0]).toEqual({ expr: "10+2", result: 12 });
+  });
+
+  it("M− resta de la memoria sin ruido de decimales", () => {
+    const s = run([...digits("0"), { type: "decimal" }, ...digits("3"), sto, mem("A"), { type: "clear" },
+      ...digits("0"), { type: "decimal" }, ...digits("1"), mMinus, mem("A")]);
+    expect(s.memory.A).toBe(0.2);
+  });
+
+  it("pulsar otra vez la misma tecla o cambiar de operación", () => {
+    expect(run([mPlus, mPlus]).memoryOp).toBeNull();
+    expect(run([mPlus, mMinus]).memoryOp).toBe("sub");
+  });
+
+  it("M+ no toca la memoria si la expresión tiene error", () => {
+    const stored = run([...digits("5"), sto, mem("C")]);
+    const s = run([...digits("1"), { type: "operator", value: "/" }, ...digits("0"), mPlus, mem("C")], stored);
+    expect(s.memory.C).toBe(5);
+    expect(s.error).toBe("División entre cero");
   });
 });

@@ -2,9 +2,12 @@
  * Estado de la calculadora como función pura (reducer), separada de React
  * para poder probarla con tests.
  */
-import { evaluate, missingParens, type AngleMode, type Memory, type MemoryKey } from "./parser";
+import { cleanFloat, evaluate, missingParens, type AngleMode, type Memory, type MemoryKey } from "./parser";
 import { numberToExpr } from "./format";
 import { appendDecimal, appendOperator, backspace, toggleSign } from "./input";
+
+/** sto = guardar, add = sumar (M+), sub = restar (M−). */
+export type MemoryOp = "sto" | "add" | "sub";
 
 export interface HistoryItem {
   expr: string;
@@ -21,8 +24,8 @@ export interface CalcState {
   history: HistoryItem[];
   /** Memorias A–D guardadas con STO. */
   memory: Memory;
-  /** true tras pulsar STO: la próxima letra A–D guarda en vez de insertar. */
-  storeArmed: boolean;
+  /** Operación de memoria pendiente tras pulsar STO, M+ o M−: la próxima letra A–D la aplica. */
+  memoryOp: MemoryOp | null;
 }
 
 export type CalcAction =
@@ -41,8 +44,8 @@ export type CalcAction =
   | { type: "clearHistory" }
   | { type: "loadHistory"; value: HistoryItem[] }
   | { type: "setAngle"; value: AngleMode }
-  | { type: "storeArm" } // STO: activa/desactiva el modo guardar
-  | { type: "memory"; key: MemoryKey } // A–D: inserta la memoria, o guarda si STO está activo
+  | { type: "memoryOp"; op: MemoryOp } // STO, M+, M−: activa/desactiva la operación pendiente
+  | { type: "memory"; key: MemoryKey } // A–D: inserta la memoria, o aplica la operación pendiente
   | { type: "clearMemory" }
   | { type: "loadMemory"; value: Memory };
 
@@ -56,7 +59,7 @@ export const initialState: CalcState = {
   angle: "deg",
   history: [],
   memory: {},
-  storeArmed: false,
+  memoryOp: null,
 };
 
 /** ¿Termina la expresión en algo sobre lo que se puede operar? (número, constante, ")", "!"…) */
@@ -67,8 +70,8 @@ export function endsWithOperand(expr: string): boolean {
 export function calcReducer(state: CalcState, action: CalcAction): CalcState {
   // Tras "=", escribir algo nuevo empieza otra expresión; operar continúa con el resultado.
   const fresh = state.justEvaluated;
-  // Cualquier tecla que no sea A–D cancela un STO pendiente.
-  const base = { ...state, error: null, justEvaluated: false, storeArmed: false };
+  // Cualquier tecla que no sea A–D cancela un STO, M+ o M− pendiente.
+  const base = { ...state, error: null, justEvaluated: false, memoryOp: null };
 
   switch (action.type) {
     case "digit":
@@ -103,9 +106,9 @@ export function calcReducer(state: CalcState, action: CalcAction): CalcState {
       return { ...base, expr: "", lastExpr: "" };
 
     case "equals": {
-      if (state.expr === "" || fresh) return { ...state, storeArmed: false };
+      if (state.expr === "" || fresh) return { ...state, memoryOp: null };
       const r = evaluate(state.expr, state.angle, { autoClose: true, memory: state.memory });
-      if (!r.ok) return { ...state, error: r.error, storeArmed: false };
+      if (!r.ok) return { ...state, error: r.error, memoryOp: null };
       const closed = state.expr + ")".repeat(missingParens(state.expr));
       const history = [{ expr: closed, result: r.value }, ...state.history].slice(0, HISTORY_LIMIT);
       return {
@@ -118,7 +121,7 @@ export function calcReducer(state: CalcState, action: CalcAction): CalcState {
     }
 
     case "toggleAngle":
-      return { ...state, storeArmed: false, angle: state.angle === "deg" ? "rad" : "deg" };
+      return { ...state, memoryOp: null, angle: state.angle === "deg" ? "rad" : "deg" };
 
     case "setAngle":
       return { ...state, angle: action.value };
@@ -139,30 +142,31 @@ export function calcReducer(state: CalcState, action: CalcAction): CalcState {
     case "loadHistory":
       return { ...state, history: action.value.slice(0, HISTORY_LIMIT) };
 
-    case "storeArm":
-      return { ...state, error: null, storeArmed: !state.storeArmed };
+    case "memoryOp":
+      return { ...state, error: null, memoryOp: state.memoryOp === action.op ? null : action.op };
 
     case "memory": {
-      if (!state.storeArmed) {
+      const op = state.memoryOp;
+      if (!op) {
         // Usar la memoria: se inserta la letra en la expresión (2A, sin(B)…).
         return { ...base, expr: (fresh ? "" : state.expr) + action.key };
       }
-      // Guardar: primero se calcula lo que haya en pantalla, como al pulsar "=".
-      if (state.expr === "") {
-        return { ...base, memory: { ...state.memory, [action.key]: 0 } };
-      }
-      const evaluated = fresh ? state : calcReducer({ ...state, storeArmed: false }, { type: "equals" });
-      if (evaluated.error) return { ...evaluated, storeArmed: false };
-      const value = Number(evaluated.expr);
+      // Guardar, sumar o restar: primero se calcula lo que haya en pantalla, como al pulsar "=".
+      const evaluated =
+        fresh || state.expr === "" ? state : calcReducer({ ...state, memoryOp: null }, { type: "equals" });
+      if (evaluated.error) return { ...evaluated, memoryOp: null };
+      const value = evaluated.expr === "" ? 0 : Number(evaluated.expr);
+      const previous = state.memory[action.key] ?? 0; // una memoria vacía cuenta como 0
+      const stored = op === "sto" ? value : cleanFloat(op === "add" ? previous + value : previous - value);
       return {
         ...evaluated,
-        storeArmed: false,
-        memory: { ...state.memory, [action.key]: value },
+        memoryOp: null,
+        memory: { ...state.memory, [action.key]: Object.is(stored, -0) ? 0 : stored },
       };
     }
 
     case "clearMemory":
-      return { ...state, memory: {}, storeArmed: false };
+      return { ...state, memory: {}, memoryOp: null };
 
     case "loadMemory":
       return { ...state, memory: action.value };

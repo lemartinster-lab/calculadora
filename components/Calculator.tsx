@@ -148,10 +148,12 @@ export function Calculator() {
           memory={state.memory}
         />
 
-        {(storedMemories.length > 0 || state.storeArmed) && (
+        {(storedMemories.length > 0 || state.memoryOp) && (
           <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs" aria-label="Memorias guardadas">
-            {state.storeArmed && (
-              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-300">STO → elige A, B, C o D</span>
+            {state.memoryOp && (
+              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-300">
+                {{ sto: "STO", add: "M+", sub: "M−" }[state.memoryOp]} → elige A, B, C o D
+              </span>
             )}
             {storedMemories.map((k) => (
               <span key={k} className="rounded bg-slate-800 px-1.5 py-0.5 text-sky-200">
@@ -171,7 +173,7 @@ export function Calculator() {
         )}
 
         <div className={`mt-4 grid gap-4 ${scientific ? "md:grid-cols-[1.25fr_1fr]" : ""}`}>
-          {scientific && <ScientificKeypad angle={state.angle} storeArmed={state.storeArmed} onPress={dispatch} />}
+          {scientific && <ScientificKeypad angle={state.angle} memoryOp={state.memoryOp} onPress={dispatch} />}
           <BasicKeypad onPress={dispatch} />
         </div>
       </section>
