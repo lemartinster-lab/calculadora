@@ -1,5 +1,5 @@
 import type { CalcAction } from "@/lib/calculator-state";
-import type { AngleMode } from "@/lib/parser";
+import { MEMORY_KEYS, type AngleMode } from "@/lib/parser";
 
 type Variant = "num" | "op" | "fn" | "util" | "equals";
 
@@ -9,6 +9,8 @@ interface KeyDef {
   variant: Variant;
   aria?: string;
   wide?: boolean;
+  /** Tecla resaltada (STO esperando la letra). */
+  active?: boolean;
 }
 
 const STYLES: Record<Variant, string> = {
@@ -45,7 +47,7 @@ const fn = (label: string, value: string, aria?: string): KeyDef => ({
   aria,
 });
 
-function scientificKeys(angle: AngleMode): KeyDef[] {
+function scientificKeys(angle: AngleMode, storeArmed: boolean): KeyDef[] {
   return [
     fn("sin", "sin(", "Seno"),
     fn("cos", "cos(", "Coseno"),
@@ -72,6 +74,21 @@ function scientificKeys(angle: AngleMode): KeyDef[] {
       variant: "util",
       aria: `Modo de ángulo: ${angle === "deg" ? "grados" : "radianes"}. Pulsa para cambiar`,
     },
+    {
+      label: "STO",
+      action: { type: "storeArm" },
+      variant: "util",
+      active: storeArmed,
+      aria: storeArmed ? "Guardar: elige la memoria A, B, C o D" : "Guardar en memoria",
+    },
+    ...MEMORY_KEYS.map(
+      (key): KeyDef => ({
+        label: key,
+        action: { type: "memory", key },
+        variant: "fn",
+        aria: storeArmed ? `Guardar en la memoria ${key}` : `Usar la memoria ${key}`,
+      }),
+    ),
   ];
 }
 
@@ -81,7 +98,10 @@ function Key({ def, onPress }: { def: KeyDef; onPress: (a: CalcAction) => void }
       type="button"
       onClick={() => onPress(def.action)}
       aria-label={def.aria ?? def.label}
-      className={`flex h-14 select-none items-center justify-center rounded-xl text-xl font-medium transition active:scale-95 sm:h-16 ${STYLES[def.variant]}`}
+      aria-pressed={def.active}
+      className={`flex h-14 select-none items-center justify-center rounded-xl text-xl font-medium transition active:scale-95 sm:h-16 ${
+        def.active ? "bg-amber-500 text-slate-950 ring-2 ring-amber-300" : STYLES[def.variant]
+      }`}
     >
       {def.label}
     </button>
@@ -100,14 +120,16 @@ export function BasicKeypad({ onPress }: { onPress: (a: CalcAction) => void }) {
 
 export function ScientificKeypad({
   angle,
+  storeArmed,
   onPress,
 }: {
   angle: AngleMode;
+  storeArmed: boolean;
   onPress: (a: CalcAction) => void;
 }) {
   return (
-    <div className="grid grid-cols-5 gap-2 md:grid-rows-4 md:gap-2.5 md:[&>button]:h-full">
-      {scientificKeys(angle).map((k) => (
+    <div className="grid grid-cols-5 gap-2 md:grid-rows-5 md:gap-2.5 md:[&>button]:h-full">
+      {scientificKeys(angle, storeArmed).map((k) => (
         <Key key={k.label} def={k} onPress={onPress} />
       ))}
     </div>

@@ -9,7 +9,7 @@
  *   unario     = ("-" | "+") unario | potencia
  *   potencia   = postfijo ("^" unario)?          (asociativa por la derecha)
  *   postfijo   = primario ("!" | "%")*
- *   primario   = número | constante | función "(" expresión ")" | "(" expresión ")"
+ *   primario   = número | constante | memoria (A–D) | función "(" expresión ")" | "(" expresión ")"
  *
  * Así, -2^2 = -4, 2^3^2 = 512, 2π = 6,28… y 3(4+1) = 15.
  */
@@ -21,6 +21,15 @@ export type EvalResult =
   | { ok: false; error: string };
 
 export class CalcError extends Error {}
+
+/** Memorias de la calculadora (como STO/RCL en una Casio). Una memoria sin guardar vale 0. */
+export const MEMORY_KEYS = ["A", "B", "C", "D"] as const;
+export type MemoryKey = (typeof MEMORY_KEYS)[number];
+export type Memory = Partial<Record<MemoryKey, number>>;
+
+export function isMemoryKey(ch: string): ch is MemoryKey {
+  return (MEMORY_KEYS as readonly string[]).includes(ch);
+}
 
 type Token =
   | { type: "num"; value: number }
@@ -45,7 +54,7 @@ const SYMBOL_MAP: Record<string, string> = {
   "√": "sqrt",
 };
 
-export function tokenize(input: string): Token[] {
+export function tokenize(input: string, memory: Memory = {}): Token[] {
   const tokens: Token[] = [];
   let i = 0;
   const src = input;
@@ -116,10 +125,17 @@ export function tokenize(input: string): Token[] {
       continue;
     }
 
+    // Memorias A–D: siempre en mayúscula, para no confundirlas con "e" ni con funciones.
+    if (isMemoryKey(ch)) {
+      tokens.push({ type: "const", value: memory[ch] ?? 0 });
+      i++;
+      continue;
+    }
+
     // Nombres de funciones y constantes.
     if (/[a-zA-Z]/.test(ch)) {
       let word = "";
-      while (i < src.length && /[a-zA-Z]/.test(src[i])) {
+      while (i < src.length && /[a-zA-Z]/.test(src[i]) && !isMemoryKey(src[i])) {
         word += src[i].toLowerCase();
         i++;
       }
@@ -342,11 +358,11 @@ export function missingParens(expr: string): number {
 export function evaluate(
   expr: string,
   mode: AngleMode = "deg",
-  options: { autoClose?: boolean } = {},
+  options: { autoClose?: boolean; memory?: Memory } = {},
 ): EvalResult {
   try {
     const source = options.autoClose ? expr + ")".repeat(missingParens(expr)) : expr;
-    const value = new Parser(tokenize(source), mode).parse();
+    const value = new Parser(tokenize(source, options.memory), mode).parse();
     if (!Number.isFinite(value)) throw new CalcError("Número demasiado grande");
     const clean = cleanFloat(value);
     return { ok: true, value: Object.is(clean, -0) ? 0 : clean };

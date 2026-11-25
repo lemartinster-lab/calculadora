@@ -1,4 +1,4 @@
-import { evaluate, missingParens, type AngleMode } from "@/lib/parser";
+import { evaluate, missingParens, type AngleMode, type Memory } from "@/lib/parser";
 import { formatNumber, prettyExpr } from "@/lib/format";
 
 interface DisplayProps {
@@ -7,15 +7,16 @@ interface DisplayProps {
   justEvaluated: boolean;
   error: string | null;
   angle: AngleMode;
+  memory: Memory;
 }
 
-export function Display({ expr, lastExpr, justEvaluated, error, angle }: DisplayProps) {
+export function Display({ expr, lastExpr, justEvaluated, error, angle, memory }: DisplayProps) {
   const ghost = ")".repeat(missingParens(expr));
 
   // Vista previa en vivo: solo si la expresión ya da un resultado y no es un número suelto.
   let preview = "";
   if (!justEvaluated && !error && /[^0-9.]/.test(expr)) {
-    const r = evaluate(expr, angle, { autoClose: true });
+    const r = evaluate(expr, angle, { autoClose: true, memory });
     if (r.ok) preview = formatNumber(r.value);
   }
 

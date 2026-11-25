@@ -3,6 +3,7 @@
 import { useEffect, useReducer, useState } from "react";
 import { calcReducer, initialState, type CalcAction, type HistoryItem } from "@/lib/calculator-state";
 import { formatNumber, prettyExpr } from "@/lib/format";
+import { MEMORY_KEYS, isMemoryKey, type Memory } from "@/lib/parser";
 import { Display } from "./Display";
 import { BasicKeypad, ScientificKeypad } from "./Keypad";
 
@@ -12,11 +13,14 @@ interface Saved {
   history: HistoryItem[];
   angle: "deg" | "rad";
   scientific: boolean;
+  memory: Memory;
 }
 
 /** Traduce una tecla física del ordenador a una acción de la calculadora. */
 function keyToAction(key: string): CalcAction | null {
   if (/^[0-9]$/.test(key)) return { type: "digit", value: key };
+  // Mayúsculas A–D (Shift + letra) usan o guardan las memorias.
+  if (isMemoryKey(key)) return { type: "memory", key };
   switch (key) {
     case ".":
     case ",":
@@ -63,6 +67,14 @@ export function Calculator() {
         if (Array.isArray(saved.history)) dispatch({ type: "loadHistory", value: saved.history });
         if (saved.angle === "deg" || saved.angle === "rad") dispatch({ type: "setAngle", value: saved.angle });
         if (typeof saved.scientific === "boolean") setScientific(saved.scientific);
+        if (saved.memory && typeof saved.memory === "object") {
+          const memory: Memory = {};
+          for (const k of MEMORY_KEYS) {
+            const v = saved.memory[k];
+            if (typeof v === "number" && Number.isFinite(v)) memory[k] = v;
+          }
+          dispatch({ type: "loadMemory", value: memory });
+        }
       }
     } catch {
       // Sin almacenamiento disponible: la calculadora funciona igual, sin recordar nada.
@@ -73,12 +85,14 @@ export function Calculator() {
   useEffect(() => {
     if (!loaded) return;
     try {
-      const data: Saved = { history: state.history, angle: state.angle, scientific };
+      const data: Saved = { history: state.history, angle: state.angle, scientific, memory: state.memory };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch {
       /* almacenamiento lleno o bloqueado: se ignora */
     }
-  }, [loaded, state.history, state.angle, scientific]);
+  }, [loaded, state.history, state.angle, scientific, state.memory]);
+
+  const storedMemories = MEMORY_KEYS.filter((k) => state.memory[k] !== undefined);
 
   // Teclado físico.
   useEffect(() => {
@@ -131,10 +145,33 @@ export function Calculator() {
           justEvaluated={state.justEvaluated}
           error={state.error}
           angle={state.angle}
+          memory={state.memory}
         />
 
+        {(storedMemories.length > 0 || state.storeArmed) && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs" aria-label="Memorias guardadas">
+            {state.storeArmed && (
+              <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-amber-300">STO → elige A, B, C o D</span>
+            )}
+            {storedMemories.map((k) => (
+              <span key={k} className="rounded bg-slate-800 px-1.5 py-0.5 text-sky-200">
+                {k} = {formatNumber(state.memory[k] ?? 0)}
+              </span>
+            ))}
+            {storedMemories.length > 0 && (
+              <button
+                type="button"
+                onClick={() => dispatch({ type: "clearMemory" })}
+                className="ml-auto text-slate-500 hover:text-rose-400"
+              >
+                Borrar memorias
+              </button>
+            )}
+          </div>
+        )}
+
         <div className={`mt-4 grid gap-4 ${scientific ? "md:grid-cols-[1.25fr_1fr]" : ""}`}>
-          {scientific && <ScientificKeypad angle={state.angle} onPress={dispatch} />}
+          {scientific && <ScientificKeypad angle={state.angle} storeArmed={state.storeArmed} onPress={dispatch} />}
           <BasicKeypad onPress={dispatch} />
         </div>
       </section>

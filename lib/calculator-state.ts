@@ -2,7 +2,7 @@
  * Estado de la calculadora como función pura (reducer), separada de React
  * para poder probarla con tests.
  */
-import { evaluate, missingParens, type AngleMode } from "./parser";
+import { evaluate, missingParens, type AngleMode, type Memory, type MemoryKey } from "./parser";
 import { numberToExpr } from "./format";
 import { appendDecimal, appendOperator, backspace, toggleSign } from "./input";
 
@@ -19,6 +19,10 @@ export interface CalcState {
   error: string | null;
   angle: AngleMode;
   history: HistoryItem[];
+  /** Memorias A–D guardadas con STO. */
+  memory: Memory;
+  /** true tras pulsar STO: la próxima letra A–D guarda en vez de insertar. */
+  storeArmed: boolean;
 }
 
 export type CalcAction =
@@ -36,7 +40,11 @@ export type CalcAction =
   | { type: "useHistory"; value: number }
   | { type: "clearHistory" }
   | { type: "loadHistory"; value: HistoryItem[] }
-  | { type: "setAngle"; value: AngleMode };
+  | { type: "setAngle"; value: AngleMode }
+  | { type: "storeArm" } // STO: activa/desactiva el modo guardar
+  | { type: "memory"; key: MemoryKey } // A–D: inserta la memoria, o guarda si STO está activo
+  | { type: "clearMemory" }
+  | { type: "loadMemory"; value: Memory };
 
 export const HISTORY_LIMIT = 20;
 
@@ -47,17 +55,20 @@ export const initialState: CalcState = {
   error: null,
   angle: "deg",
   history: [],
+  memory: {},
+  storeArmed: false,
 };
 
 /** ¿Termina la expresión en algo sobre lo que se puede operar? (número, constante, ")", "!"…) */
 export function endsWithOperand(expr: string): boolean {
-  return /[0-9.)!%πe]$/.test(expr);
+  return /[0-9.)!%πeA-D]$/.test(expr);
 }
 
 export function calcReducer(state: CalcState, action: CalcAction): CalcState {
   // Tras "=", escribir algo nuevo empieza otra expresión; operar continúa con el resultado.
   const fresh = state.justEvaluated;
-  const base = { ...state, error: null, justEvaluated: false };
+  // Cualquier tecla que no sea A–D cancela un STO pendiente.
+  const base = { ...state, error: null, justEvaluated: false, storeArmed: false };
 
   switch (action.type) {
     case "digit":
@@ -92,9 +103,9 @@ export function calcReducer(state: CalcState, action: CalcAction): CalcState {
       return { ...base, expr: "", lastExpr: "" };
 
     case "equals": {
-      if (state.expr === "" || fresh) return state;
-      const r = evaluate(state.expr, state.angle, { autoClose: true });
-      if (!r.ok) return { ...state, error: r.error };
+      if (state.expr === "" || fresh) return { ...state, storeArmed: false };
+      const r = evaluate(state.expr, state.angle, { autoClose: true, memory: state.memory });
+      if (!r.ok) return { ...state, error: r.error, storeArmed: false };
       const closed = state.expr + ")".repeat(missingParens(state.expr));
       const history = [{ expr: closed, result: r.value }, ...state.history].slice(0, HISTORY_LIMIT);
       return {
@@ -107,7 +118,7 @@ export function calcReducer(state: CalcState, action: CalcAction): CalcState {
     }
 
     case "toggleAngle":
-      return { ...state, angle: state.angle === "deg" ? "rad" : "deg" };
+      return { ...state, storeArmed: false, angle: state.angle === "deg" ? "rad" : "deg" };
 
     case "setAngle":
       return { ...state, angle: action.value };
@@ -127,5 +138,33 @@ export function calcReducer(state: CalcState, action: CalcAction): CalcState {
 
     case "loadHistory":
       return { ...state, history: action.value.slice(0, HISTORY_LIMIT) };
+
+    case "storeArm":
+      return { ...state, error: null, storeArmed: !state.storeArmed };
+
+    case "memory": {
+      if (!state.storeArmed) {
+        // Usar la memoria: se inserta la letra en la expresión (2A, sin(B)…).
+        return { ...base, expr: (fresh ? "" : state.expr) + action.key };
+      }
+      // Guardar: primero se calcula lo que haya en pantalla, como al pulsar "=".
+      if (state.expr === "") {
+        return { ...base, memory: { ...state.memory, [action.key]: 0 } };
+      }
+      const evaluated = fresh ? state : calcReducer({ ...state, storeArmed: false }, { type: "equals" });
+      if (evaluated.error) return { ...evaluated, storeArmed: false };
+      const value = Number(evaluated.expr);
+      return {
+        ...evaluated,
+        storeArmed: false,
+        memory: { ...state.memory, [action.key]: value },
+      };
+    }
+
+    case "clearMemory":
+      return { ...state, memory: {}, storeArmed: false };
+
+    case "loadMemory":
+      return { ...state, memory: action.value };
   }
 }

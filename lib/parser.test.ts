@@ -225,3 +225,28 @@ describe("edición de la expresión", () => {
     expect(toggleSign("2+")).toBe("2+");
   });
 });
+
+describe("memorias A–D", () => {
+  const memory = { A: 12.5, B: -2, C: 90 };
+
+  it("sustituye cada letra por su valor", () => {
+    expect(evaluate("A+B", "deg", { memory })).toEqual({ ok: true, value: 10.5 });
+    expect(evaluate("sin(C)", "deg", { memory })).toEqual({ ok: true, value: 1 });
+  });
+
+  it("admite multiplicación implícita con memorias", () => {
+    expect(evaluate("2A", "deg", { memory })).toEqual({ ok: true, value: 25 });
+    expect(evaluate("AB", "deg", { memory })).toEqual({ ok: true, value: -25 });
+    expect(evaluate("eA", "deg", { memory: { A: 1 } })).toEqual(evaluate("e"));
+  });
+
+  it("una memoria sin guardar vale 0", () => {
+    expect(evaluate("D+1", "deg", { memory })).toEqual({ ok: true, value: 1 });
+    expect(evaluate("A")).toEqual({ ok: true, value: 0 });
+  });
+
+  it("las memorias negativas funcionan con potencias y signos", () => {
+    expect(evaluate("B^2", "deg", { memory })).toEqual({ ok: true, value: 4 });
+    expect(evaluate("-B", "deg", { memory })).toEqual({ ok: true, value: 2 });
+  });
+});

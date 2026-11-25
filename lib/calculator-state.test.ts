@@ -68,3 +68,42 @@ describe("flujo de la calculadora", () => {
     expect(s.history[0].result).toBe(25);
   });
 });
+
+describe("memorias A–D", () => {
+  const sto: CalcAction = { type: "storeArm" };
+  const mem = (key: "A" | "B" | "C" | "D"): CalcAction => ({ type: "memory", key });
+
+  it("STO + letra guarda el resultado ya calculado", () => {
+    const s = run([...digits("6"), { type: "operator", value: "*" }, ...digits("7"), { type: "equals" }, sto, mem("A")]);
+    expect(s.memory.A).toBe(42);
+    expect(s.storeArmed).toBe(false);
+  });
+
+  it("STO sin pulsar = calcula primero la expresión", () => {
+    const s = run([...digits("10"), { type: "operator", value: "/" }, ...digits("4"), sto, mem("B")]);
+    expect(s.memory.B).toBe(2.5);
+    expect(s.expr).toBe("2.5");
+    expect(s.history[0]).toEqual({ expr: "10/4", result: 2.5 });
+  });
+
+  it("sin STO, la letra se inserta y se usa en el cálculo", () => {
+    const stored = run([...digits("5"), sto, mem("C")]);
+    const s = run([...digits("2"), mem("C"), { type: "operator", value: "+" }, ...digits("1"), { type: "equals" }], stored);
+    expect(s.expr).toBe("11");
+  });
+
+  it("STO no guarda si la expresión tiene error", () => {
+    const s = run([...digits("1"), { type: "operator", value: "/" }, ...digits("0"), sto, mem("A")]);
+    expect(s.memory.A).toBeUndefined();
+    expect(s.error).toBe("División entre cero");
+    expect(s.storeArmed).toBe(false);
+  });
+
+  it("otra tecla cancela STO, AC no borra memorias y Borrar memorias sí", () => {
+    const armed = run([...digits("3"), sto, { type: "operator", value: "+" }]);
+    expect(armed.storeArmed).toBe(false);
+    const stored = run([sto, mem("D"), { type: "clear" }], run([...digits("9")]));
+    expect(stored.memory.D).toBe(9);
+    expect(run([{ type: "clearMemory" }], stored).memory).toEqual({});
+  });
+});
